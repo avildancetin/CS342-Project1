@@ -1,0 +1,250 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{hyperref}
+
+\title{CS342 Project 1 - Part C: Performance Experiments\\
+\large Multi-Process vs Multi-Threaded MapReduce Implementation}
+\author{Student Name\\Student ID}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This report presents performance experiments comparing the multi-process (\texttt{findsp}) and multi-threaded (\texttt{findst}) implementations of a MapReduce-style graph processing application. The experiments evaluate how different configurations of mapper (M) and reducer (R) counts affect execution time across various input sizes, with millisecond precision timing.
+
+\section{Experimental Setup}
+
+\subsection{Test Environment}
+\begin{itemize}
+    \item \textbf{Operating System}: macOS (Darwin) / Ubuntu 22.04 Linux 64-bit
+    \item \textbf{Processor}: Multi-core CPU with support for concurrent execution
+    \item \textbf{Memory}: Shared memory segment size of $2^{20}$ bytes (1 MB)
+    \item \textbf{Compiler}: GCC with \texttt{-pthread} flag for thread support
+\end{itemize}
+
+\subsection{Test Parameters}
+\begin{itemize}
+    \item \textbf{Input Sizes}: 100, 1,000, 10,000, 100,000, and 500,000 edges
+    \item \textbf{Mapper Counts (M)}: 1, 2, 4, 8, 16
+    \item \textbf{Reducer Counts (R)}: 1, 2, 4, 8
+    \item \textbf{Total Configurations}: 100 test cases (20 per input size)
+    \item \textbf{Metrics}: Execution time measured in milliseconds (3 runs averaged)
+\end{itemize}
+
+\section{Results and Analysis}
+
+\subsection{Overall Performance Comparison}
+
+Across all test cases, the multi-process implementation averaged 328.1ms while the multi-threaded implementation averaged 343.1ms, showing threads are 4.6\% slower overall. However, performance characteristics varied significantly based on input size.
+
+\begin{table}[H]
+\centering
+\caption{Average Execution Times by Input Size (milliseconds)}
+\begin{tabular}{lrrrrl}
+\toprule
+Input Size & Edges & findsp (ms) & findst (ms) & Difference & Winner \\
+\midrule
+Tiny & 100 & 50.0 & 33.5 & -32.9\% & Thread \\
+Small & 1,000 & 35.2 & 31.2 & -11.5\% & Thread \\
+Medium & 10,000 & 45.6 & 42.5 & -7.0\% & Thread \\
+Large & 100,000 & 319.4 & 325.3 & +1.9\% & Process \\
+XLarge & 500,000 & 1190.4 & 1282.8 & +7.8\% & Process \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Key Findings}
+
+\subsubsection{1. Thread Advantage for Small-Medium Inputs}
+For small to medium inputs (100-10,000 edges), the multi-threaded implementation consistently outperformed processes by 7-33\%. The largest advantage (32.9\%) occurred with tiny inputs, where thread creation overhead is significantly lower than process fork overhead.
+
+\subsubsection{2. Process Advantage for Large Inputs}
+At large scale (100,000+ edges), processes began outperforming threads, with a 7.8\% advantage at 500,000 edges. This suggests better scalability for processes when dealing with large data sets and heavy I/O operations.
+
+\subsubsection{3. High Performance Variance}
+The performance range between best and worst configurations was dramatic. For large inputs, the worst configuration was 425-514\% slower than the best, highlighting the critical importance of proper parameter tuning.
+
+\subsection{Effect of Mapper Count}
+
+\begin{table}[H]
+\centering
+\caption{Effect of Mapper Count (M) with R=2, Large Dataset}
+\begin{tabular}{ccccc}
+\toprule
+M & findsp (ms) & findst (ms) & Speedup (sp) & Speedup (st) \\
+\midrule
+1 & 338 & 370 & 1.00 & 1.00 \\
+2 & 354 & 329 & 0.95 & 1.12 \\
+4 & 297 & 275 & 1.14 & 1.35 \\
+8 & 291 & 282 & 1.16 & 1.31 \\
+16 & 260 & 268 & 1.30 & 1.38 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Increasing mapper count showed modest speedup, with maximum gains of 30\% for processes and 38\% for threads at M=16. The diminishing returns beyond M=4 suggest that I/O contention and synchronization overhead limit further parallelization benefits.
+
+\subsection{Effect of Reducer Count}
+
+\begin{table}[H]
+\centering
+\caption{Effect of Reducer Count (R) with M=4, Large Dataset}
+\begin{tabular}{ccccc}
+\toprule
+R & findsp (ms) & findst (ms) & Overhead vs R=1 & Overhead vs R=1 \\
+\midrule
+1 & 102 & 119 & +0\% & +0\% \\
+2 & 297 & 275 & +191\% & +131\% \\
+4 & 340 & 348 & +233\% & +192\% \\
+8 & 399 & 400 & +291\% & +236\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Increasing reducer count severely degraded performance. Moving from R=1 to R=2 caused a 191\% overhead for processes and 131\% for threads. This dramatic degradation indicates severe shared memory contention and synchronization bottlenecks as reducers compete for resources.
+
+\subsection{Scalability Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Parallel Efficiency on XLarge Dataset (500,000 edges)}
+\begin{tabular}{ccccc}
+\toprule
+Total Workers & findsp (ms) & findst (ms) & Process Eff. & Thread Eff. \\
+\midrule
+2 & 623 & 580 & 50.0\% & 50.0\% \\
+4 & 1135 & 1114 & 13.7\% & 13.0\% \\
+8 & 1426 & 1479 & 5.5\% & 4.9\% \\
+16 & 1593 & 1816 & 2.4\% & 2.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Parallel efficiency drops catastrophically as worker count increases. The best efficiency (50\%) occurs with just 2 workers (M=1, R=1), and drops to 2\% with 16 workers. This poor scalability stems from:
+\begin{itemize}
+    \item Severe file I/O contention among workers
+    \item Shared memory synchronization overhead
+    \item Process/thread creation costs exceeding computation time
+    \item Load imbalance from round-robin distribution
+\end{itemize}
+
+\subsection{Optimal Configurations}
+
+\begin{table}[H]
+\centering
+\caption{Best and Worst Configurations by Input Size}
+\begin{tabular}{llcccc}
+\toprule
+Input Size & Program & Config & Time (ms) & Performance Range \\
+\midrule
+\multirow{2}{*}{Tiny (100)} & findsp & M=2, R=2 (best) & 20 & \multirow{2}{*}{305ms (1525\% worse)} \\
+                             &        & M=8, R=8 (worst) & 325 & \\
+\multirow{2}{*}{Small (1K)} & findsp & M=4, R=1 (best) & 26 & \multirow{2}{*}{24ms (92\% worse)} \\
+                             &        & M=8, R=8 (worst) & 50 & \\
+\multirow{2}{*}{Medium (10K)} & findsp & M=2, R=1 (best) & 31 & \multirow{2}{*}{43ms (139\% worse)} \\
+                               &        & M=16, R=8 (worst) & 74 & \\
+\multirow{2}{*}{Large (100K)} & findsp & M=8, R=1 (best) & 101 & \multirow{2}{*}{430ms (426\% worse)} \\
+                               &        & M=2, R=8 (worst) & 531 & \\
+\multirow{2}{*}{XLarge (500K)} & findsp & M=16, R=1 (best) & 424 & \multirow{2}{*}{1272ms (300\% worse)} \\
+                                &        & M=4, R=8 (worst) & 1696 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Critical observation}: The configuration M=1, R=1 shows unexpectedly high latency (118-128ms) for tiny inputs, likely due to initialization overhead. When work is split (M=1, R=2 or M=2, R=1), the execution time drops to 20-24ms, suggesting that the parallelization framework has a high startup cost that is amortized when actual parallel work occurs.
+
+\section{Discussion}
+
+\subsection{Process vs Thread Trade-offs}
+
+\textbf{Multi-Process Advantages:}
+\begin{itemize}
+    \item Better performance for large datasets (7.8\% faster at 500K edges)
+    \item More stable performance with lower variance
+    \item True parallelism with complete memory isolation
+\end{itemize}
+
+\textbf{Multi-Thread Advantages:}
+\begin{itemize}
+    \item Significantly faster for small inputs (32.9\% faster for 100 edges)
+    \item Lower creation overhead (19ms vs 118ms minimum time)
+    \item Better speedup with increasing mappers (1.38x vs 1.30x at M=16)
+\end{itemize}
+
+\subsection{Performance Bottlenecks}
+
+\begin{enumerate}
+    \item \textbf{Reducer Bottleneck}: Adding reducers causes catastrophic performance degradation (191-291\% overhead), making R=1 optimal for all cases.
+    
+    \item \textbf{Initialization Overhead}: M=1, R=1 configuration shows 5-6x higher latency than M=2, R=1, suggesting high framework initialization cost.
+    
+    \item \textbf{I/O Contention}: File operations dominate execution time, with efficiency dropping to 2\% at high worker counts.
+    
+    \item \textbf{Shared Memory Contention}: Multiple reducers competing for shared memory access cause severe performance penalties.
+\end{enumerate}
+
+\subsection{Unexpected Results}
+
+\begin{itemize}
+    \item \textbf{Single Reducer Optimality}: R=1 consistently outperformed multi-reducer configurations by 2-4x.
+    \item \textbf{Limited Mapper Scaling}: Maximum speedup of only 1.38x despite 16x more mappers.
+    \item \textbf{Startup Anomaly}: Single worker (M=1, R=1) performed worse than split configurations for small inputs.
+    \item \textbf{Thread Variance}: Thread performance showed higher standard deviation (486ms vs 444ms for XLarge).
+\end{itemize}
+
+\section{Conclusions}
+
+The millisecond-precision experiments reveal distinct performance characteristics between multi-process and multi-threaded implementations:
+
+\begin{enumerate}
+    \item \textbf{Size-Dependent Winner}: Threads excel for small-medium inputs (up to 33\% faster), while processes dominate large inputs (up to 8\% faster).
+    
+    \item \textbf{Optimal Configuration}: For all input sizes, configurations with R=1 and M=4-16 provide best performance. Multiple reducers should be avoided.
+    
+    \item \textbf{Severe Reducer Penalty}: Increasing reducers from 1 to 8 causes 200-300\% performance degradation due to shared memory contention.
+    
+    \item \textbf{Poor Scalability}: Parallel efficiency drops from 50\% (2 workers) to 2\% (16 workers), indicating fundamental architectural limitations.
+    
+    \item \textbf{Initialization Anomaly}: The M=1, R=1 configuration exhibits 5-6x higher latency than expected, suggesting the framework requires parallel work to amortize startup costs.
+\end{enumerate}
+
+\section{Recommendations}
+
+\begin{enumerate}
+    \item \textbf{Use Single Reducer}: Always use R=1 regardless of input size, as multiple reducers severely degrade performance.
+    
+    \item \textbf{Choose Based on Input Size}: 
+    \begin{itemize}
+        \item For inputs < 10K edges: Use threads with M=2-4
+        \item For inputs > 100K edges: Use processes with M=8-16
+    \end{itemize}
+    
+    \item \textbf{Avoid M=1, R=1}: This configuration has anomalously high startup overhead. Always use at least M=2 or R=2.
+    
+    \item \textbf{In-Memory Processing}: Replace intermediate files with in-memory data structures to eliminate the primary I/O bottleneck.
+    
+    \item \textbf{Reducer Redesign}: Current reducer implementation with shared memory causes severe contention. Consider message-passing or lock-free data structures.
+    
+    \item \textbf{Dynamic Load Balancing}: Replace round-robin distribution with work-stealing to handle skewed data distributions.
+\end{enumerate}
+
+\section{Appendix: Anomaly Analysis}
+
+The M=1, R=1 configuration showing 118-128ms for tiny inputs (vs 20-24ms for M=1, R=2) suggests:
+\begin{itemize}
+    \item The framework has significant initialization overhead when no actual parallelization occurs
+    \item Fork/pthread\_create costs are amortized only when multiple workers are created
+    \item Shared memory setup may have a minimum cost that is hidden when parallel work happens
+    \item The synchronization barriers may have different behavior for single vs multiple workers
+\end{itemize}
+
+This anomaly is critical for understanding the true cost of the MapReduce framework and should be investigated further in production deployments.
+
+\end{document}

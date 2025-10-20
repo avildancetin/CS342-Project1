@@ -40,10 +40,16 @@ memcheck: findsp_debug
 		echo "Program completed. Install valgrind for detailed memory analysis."; \
 	fi
 
+run-findsp: findsp
+	./findsp in.txt 3 2 out1.txt out2.txt -1 -1 20
+
+run-findst: findst
+	./findst in.txt 3 2 out1.txt out2.txt -1 -1 20
+
 clean:
 	rm -f findsp findst findsp_debug out1.txt out2.txt
 	rm -f split-* intermediate-* output-*
 	rm -f valgrind_report.txt
 
-.PHONY: all clean memcheck
+.PHONY: all clean memcheck run-findsp run-findst
 
